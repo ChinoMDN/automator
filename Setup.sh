@@ -62,17 +62,15 @@ check_root() {
     fi
 }
 
-# Function to create directory structure
+# Modify create_directories function to use the new script
 create_directories() {
     print_status "Creating directory structure..."
     
-    # Main pentesting directories
-    mkdir -p ~/pentesting/{targets,tools,wordlists,scripts,reports,notes}
-    mkdir -p ~/pentesting/targets/{recon,scans,exploits,loot,screenshots}
-    mkdir -p ~/pentesting/tools/{custom,wordlists,payloads}
+    # Source the directories script
+    source "$(dirname "$0")/directories.sh"
     
-    # Python virtual environments directory
-    mkdir -p ~/venvs
+    # Create all directories
+    create_directory_structure
     
     print_success "Directory structure created"
 }
@@ -117,49 +115,6 @@ check_dependencies() {
             install_pkg "$pkg"
         done
     fi
-}
-
-# Modificar las declaraciones de directorios
-declare -g -r CONFIG_DIR="$SCRIPT_DIR/config"
-declare -g -r LIB_DIR="$SCRIPT_DIR/lib"
-
-# Añadir función de verificación de estructura
-check_structure() {
-    print_status "Verificando estructura del proyecto..."
-    
-    local dirs=(
-        "$CONFIG_DIR"
-        "$LIB_DIR"
-    )
-    
-    local files=(
-        "$CONFIG_DIR/tools.yaml"
-        "$LIB_DIR/yaml_parser.sh"
-    )
-    
-    # Crear directorios necesarios
-    for dir in "${dirs[@]}"; do
-        if [ ! -d "$dir" ]; then
-            mkdir -p "$dir"
-            print_status "Creado directorio: $dir"
-        fi
-    done
-    
-    # Verificar archivos necesarios
-    for file in "${files[@]}"; do
-        if [ ! -f "$file" ]; then
-            case "$file" in
-                *tools.yaml)
-                    create_default_tools_yaml
-                    ;;
-                *yaml_parser.sh)
-                    create_yaml_parser
-                    ;;
-            esac
-        fi
-    done
-    
-    print_success "Estructura del proyecto verificada"
 }
 
 # Enhanced variable declarations with explicit typing
@@ -1449,7 +1404,7 @@ EOF
     detect_pkg_manager
     check_root
     check_dependencies
-    check_structure
+    initialize_environment
     
     # Ensure script directory is writable
     if [ ! -w "$SCRIPT_DIR" ]; then
@@ -1511,5 +1466,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
     trap 'cleanup_handler' EXIT
     trap 'interrupt_handler' INT TERM
+    main "$@"
+fi
     main "$@"
 fi
