@@ -1,0 +1,43 @@
+tools:
+  # Web Tools
+  burpsuite:
+    name: "burpsuite"
+    source: "apt"
+    type: "package"
+    category: "web"
+
+  dirsearch:
+    name: "dirsearch"
+    source: "github"
+    url: "https://github.com/maurosoria/dirsearch.git"
+    type: "clone"
+    category: "web"
+    deps: "python3-pip"
+
+  # Exploitation Tools
+  metasploit:
+    name: "metasploit-framework"
+    source: "apt"
+    type: "package"
+    category: "exploit"
+    deps: "postgresql"
+
+  # OSINT Tools
+  theHarvester:
+    name: "theharvester"
+    source: "apt"
+    type: "package"
+    category: "recon"
+  metasploit:
+    name: "metasploit-framework"
+    source: "apt"
+    type: "package"
+    category: "exploit"
+    deps: "postgresql"
+
+  # OSINT Tools
+  theHarvester:
+    name: "theharvester"
+    source: "apt"
+    type: "package"
+    category: "recon"

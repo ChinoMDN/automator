@@ -1,0 +1,36 @@
+# Tool configurations
+bloodhound:
+  source: github
+  url: BloodHoundAD/BloodHound
+  type: release
+  pattern: BloodHound-linux-x64.zip
+  deps: neo4j
+
+impacket:
+  source: github
+  url: SecureAuthCorp/impacket
+  type: clone
+  deps: python3-dev
+  build: cd $install_dir/impacket && python3 -m pip install .
+
+ffuf:
+  source: github
+  url: ffuf/ffuf
+  type: release
+  pattern: linux_amd64
+  deps: golang-go
+  build: go build
+
+nuclei:
+  source: github
+  url: projectdiscovery/nuclei
+  type: release
+  pattern: linux_amd64
+
+sqlmap:
+  source: github
+  url: sqlmapproject/sqlmap
+  type: clone
+  deps: python3-dev
+
+# Additional tool configurations...

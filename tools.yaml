@@ -1,0 +1,103 @@
+---
+# Tool Configuration File
+#
+# Fields:
+#   source: Where the tool comes from (git, apt, manual)
+#   url: Repository URL or download link
+#   type: Installation type (clone, package, binary)
+#   dependencies: List of required packages for installation
+
+categories:
+  recon:
+    description: "Reconnaissance and Information Gathering Tools"
+    tools:
+      - nuclei
+      - subfinder
+      - amass
+  exploitation:
+    description: "Exploitation and Post-Exploitation Tools"
+    tools:
+      - bloodhound
+      - impacket
+      - metasploit
+  web:
+    description: "Web Application Testing Tools"
+    tools:
+      - ffuf
+      - sqlmap
+      - burpsuite
+
+tools:
+  bloodhound:
+    name: "BloodHound"
+    description: "Active Directory Security Tool"
+    source: github
+    url: BloodHoundAD/BloodHound
+    type: release
+    pattern: BloodHound-linux-x64.zip
+    deps:
+      - neo4j
+    verify:
+      type: gpg
+      key: ABC123
+    tags: [active-directory, windows]
+
+  impacket:
+    name: "Impacket"
+    description: "Network Protocol Collection"
+    source: github
+    url: SecureAuthCorp/impacket
+    type: clone
+    deps:
+      - python3-dev
+      - python3-pip
+    build: python3 -m pip install .
+    tags: [network, protocol]
+
+  ffuf:
+    name: "FFUF"
+    description: "Fast Web Fuzzer"
+    source: github
+    url: ffuf/ffuf
+    type: release
+    pattern: linux_amd64
+    deps:
+      - golang-go
+    verify:
+      type: sha256
+      hash: SHA256HASH
+    tags: [web, fuzzing]
+
+  nuclei:
+    name: "Nuclei"
+    description: "Vulnerability Scanner"
+    source: github
+    url: projectdiscovery/nuclei
+    type: release
+    pattern: linux_amd64
+    verify:
+      type: sha256
+    tags: [scanning, vuln-assessment]
+
+  metasploit:
+    name: "Metasploit Framework"
+    description: "Penetration Testing Framework"
+    source: apt
+    package: metasploit-framework
+    post_install:
+      - msfdb init
+      - systemctl enable postgresql
+    tags: [exploitation, framework]
+
+defaults:
+  verify: true
+  auto_update: true
+  install_dir: ~/pentesting/tools
+  backup: true
+  retry_count: 3
+
+paths:
+  tools: ~/pentesting/tools
+  wordlists: ~/pentesting/wordlists
+  scripts: ~/pentesting/scripts
+  logs: ~/pentesting/logs
