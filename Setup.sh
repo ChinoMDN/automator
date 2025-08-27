@@ -902,7 +902,8 @@ install_modern_cli_tools() {
         print_warning "fzf already installed" 
     fi
     # Install additional useful tools 
-    sudo apt install -y jq yq httpie tldr thefuck tmux ranger ncdu prettyping 
+    sudo apt install -y jq yq httpie thefuck tmux ranger ncdu prettyping snapd
+    sudo snap install tldr
     print_success "Modern CLI tools installed" 
 }
 
