@@ -1,4 +1,4 @@
-# Kali Automator 🛠️
+# Automator 🛠️
 
 Automated setup script for Kali Linux and other security distributions with focus on web/server pentesting.
 
@@ -6,7 +6,7 @@ Automated setup script for Kali Linux and other security distributions with focu
 
 ```bash
 git clone https://github.com/ChinoMDN/automator.git
-cd kali-automator
+cd automator
 chmod +x Setup.sh
 ./Setup.sh
 ```
