@@ -141,6 +141,7 @@ trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
 trap 'cleanup_handler' EXIT
 trap 'interrupt_handler' INT TERM
 
+# Enhanced error handling with detailed logging
 err_handler() {
     local exit_code=$1
     local line_no=$2
@@ -148,8 +149,15 @@ err_handler() {
     local func_name="${FUNCNAME[1]:-main}"
     
     print_error "Error in $func_name() on line $line_no: '$command' exited with status $exit_code"
-    printf "[ERROR] %s() Line %s: '%s' failed with status %d\n" \
-           "$func_name" "$line_no" "$command" "$exit_code" >> "$LOG_FILE"
+    printf "[%s] [ERROR] %s() Line %s: '%s' failed with status %d\n" \
+           "$(date '+%Y-%m-%d %H:%M:%S')" "$func_name" "$line_no" "$command" "$exit_code" >> "$LOG_FILE"
+    
+    # Notify if in interactive mode
+    if [[ -t 1 ]]; then
+        read -p "Continue execution? (y/N): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && exit $exit_code
+    fi
 }
 
 cleanup_handler() {
@@ -186,38 +194,40 @@ create_temp_dir() {
     printf '%s\n' "$temp_dir"
 }
 
-# Install a package using the detected package manager
+# Improved package installation with retry and timeout
 install_pkg() {
     local pkg="$1"
     local retries=3
-    local wait_time=5
+    local timeout=300
     local attempt=1
+    local temp_log=$(mktemp)
+    TEMP_DIRS+=("$temp_log")
 
     while [ $attempt -le $retries ]; do
         print_status "Installing $pkg (attempt $attempt/$retries)..."
-        case "$PKG_MANAGER" in
-            apt)
-                if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >>"$LOG_FILE" 2>&1; then
-                    print_success "$pkg installed successfully"
-                    return 0
-                fi
-                ;;
-            dnf)
-                if sudo dnf install -y "$pkg" >>"$LOG_FILE" 2>&1; then
-                    print_success "$pkg installed successfully"
-                    return 0
-                fi
-                ;;
-            pacman)
-                if sudo pacman -S --noconfirm "$pkg" >>"$LOG_FILE" 2>&1; then
-                    print_success "$pkg installed successfully"
-                    return 0
-                fi
-                ;;
-        esac
         
+        # Use timeout command to prevent hanging
+        if timeout $timeout bash -c "
+            case \"$PKG_MANAGER\" in
+                apt)
+                    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkg
+                    ;;
+                dnf)
+                    sudo dnf install -y $pkg
+                    ;;
+                pacman)
+                    sudo pacman -S --noconfirm --needed $pkg
+                    ;;
+            esac
+        " > "$temp_log" 2>&1; then
+            print_success "$pkg installed successfully"
+            cat "$temp_log" >> "$LOG_FILE"
+            return 0
+        fi
+
+        cat "$temp_log" >> "$LOG_FILE"
         attempt=$((attempt + 1))
-        [ $attempt -le $retries ] && sleep $wait_time
+        [ $attempt -le $retries ] && sleep 5
     done
 
     print_error "Failed to install $pkg after $retries attempts"
@@ -834,8 +844,21 @@ check_config() {
 
 # Enhanced main function with better initialization
 main() {
-    # Initialize logging
+    # Initialize logging with rotation
+    local max_logs=5
+    [[ -f "$LOG_FILE" ]] && {
+        for ((i=max_logs-1; i>=0; i--)); do
+            [[ -f "${LOG_FILE}.$i" ]] && mv "${LOG_FILE}.$i" "${LOG_FILE}.$((i+1))"
+        done
+        mv "$LOG_FILE" "${LOG_FILE}.0"
+    }
+    
     exec > >(tee -a "$LOG_FILE") 2>&1
+    
+    # Add startup timestamp
+    echo "=== Setup started at $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$LOG_FILE"
+    
+    check_system_resources
     
     print_status "Starting setup (Version: $SCRIPT_VERSION)"
     print_status "Logging to $LOG_FILE"
