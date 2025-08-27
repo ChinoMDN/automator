@@ -1,0 +1,9 @@
+python-nmap>=0.7.1
+requests>=2.28.1
+impacket>=0.10.0
+pyftpdlib>=1.5.7
+python-dotenv>=0.21.0
+paramiko>=2.11.0
+pycrypto>=2.6.1
+beautifulsoup4>=4.11.1
+scapy>=2.4.5
