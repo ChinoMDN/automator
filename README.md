@@ -241,10 +241,6 @@ Contributions are welcome! Please follow these steps:
 - Update documentation for new features
 - Add error handling for edge cases
 
-## Changelog 📝
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
 ## License 📄
 
 This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.

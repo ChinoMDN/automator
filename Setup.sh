@@ -30,7 +30,7 @@
 
 set -e # Exit on any error
 
-# Colors for output [15, 16]
+# Colors for output 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -755,7 +755,7 @@ qscan() { if [[ -z "$1" ]]; then echo "Usage: qscan <target_ip>"; return 1; fi; 
 fscan() { if [[ -z "$1" ]]; then echo "Usage: fscan <target_ip>"; return 1; fi; nmap -sS -sC -sV -O -T4 -p- "$1"; }
 wscan() { if [[ -z "$1" ]]; then echo "Usage: wscan <target_url>"; return 1; fi; nmap -sS -sV -p80,443,8080,8443,8000,3000,5000 --script=http-* "$1"; }
 EOF
-    # The ~/.zshrc sourcing logic here will be superseded by setup_zsh_environment's XDG .zshrc [11, 44]
+    # The ~/.zshrc sourcing logic here will be superseded by setup_zsh_environment's XDG .zshrc 
     print_success "Unified pentesting aliases and functions configured" 
 }
 
@@ -1123,7 +1123,7 @@ EOF
 setup_advanced_aliases() {
     print_status "Setting up advanced aliases and functions..." 
     mkdir -p ~/.config/zsh 
-    cat > ~/.config/zsh/pentesting_advanced.zsh << 'EOF' #  ... 
+    cat > ~/.config/zsh/pentesting_advanced.zsh << 'EOF' 
 # Advanced Pentesting Functions and Aliases
 target() {
     if [[ -z "$1" ]]; then
@@ -1210,7 +1210,7 @@ alias bandwidth='iftop -i eth0'
 alias taillog='tail -f /var/log/syslog'
 alias errors='journalctl -p 3 -xb'
 EOF
-    # The ~/.zshrc sourcing logic here will be superseded by setup_zsh_environment's XDG .zshrc [61, 62]
+    # The ~/.zshrc sourcing logic here will be superseded by setup_zsh_environment's XDG .zshrc 
     print_success "Advanced aliases and functions configured" 
 }
 
@@ -1258,7 +1258,7 @@ SKIP_ADVANCED=true
 SKIP_WORDLISTS=true
 AUTO_ACTIVATE_VENV=false # For the AUTO_VENV option in the interactive menu
 
-# The main function orchestrates the setup process [1-5]
+# The main function orchestrates the setup process 
 main() {
     # Initialize script environment
     set -o errexit 
@@ -1353,7 +1353,7 @@ EOF
     # Configure VMware tools (likely applicable if running in a VM, based on initial output) 
     configure_vmware_tools 
 
-    # Finish installation and print instructions [3-5]
+    # Finish installation and print instructions 
     echo "5. Shared folders (if configured) are accessible via 'shared' alias" 
     echo ""
     print_status "IMPORTANT: To apply all changes, please restart your terminal or run:" 
